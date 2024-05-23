@@ -1,6 +1,6 @@
 import os
 import ffmpeg
-import gene_path as DOWNLOADED_TT
+import 
 
 def extract_audio(video_path, output_dir):
     audio_output = os.path.join(output_dir, os.path.splitext(os.path.basename(video_path))[0] + '.wav')
@@ -28,7 +28,7 @@ def process_videos(video_dir, output_dir):
             print(f"Extracted thumbnail to {thumbnail_path}")
 
 if __name__ == "__main__":
-    video_directory = DOWNLOADED_TT
+    video_directory = './downloaded_tiktoks'
     output_directory = './extracted_elements'
     
     process_videos(video_directory, output_directory)
