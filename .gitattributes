@@ -1,0 +1,2 @@
+downloaded_tiktoks/*.mp4 filter=lfs diff=lfs merge=lfs -text
+downloaded_tiktoks/\#perfectionism[[:space:]]\#peoplepleasing[[:space:]]\#laziness[[:space:]]\#productivity[[:space:]]\#selfworth[[:space:]]\#selfesteem[[:space:]]\#booktok[[:space:]]\#readinglist[[:space:]]\#therapy[[:space:]]\#trauma[[:space:]]\#burnout[[:space:]]\#lazy[[:space:]]\#stress[[:space:]]\#dissapointment[[:space:]].mp4 filter=lfs diff=lfs merge=lfs -text
