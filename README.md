@@ -7,15 +7,15 @@ this tool uses semantic search on text from social media platforms (twitter for 
 
 posts from x were scraped (through totally cool and non api usage terms violating ways, but message me if you want to know) then were extracted for the text content only, embedded, then stored in a db using postgres. 
 
-we take the embedded text posts (using a local instance of nomic v-1.5) and run them against the embedded query after analyzing the user's intent from their first query, iteratively refining the query through prompting using chain of thought and in-context learning through optional clarifying questions presented to the user to be translated into a sql lookup query. this is not the intended final method to refine queries, as string-based prompts are unreliable at generating the target sql query at times--i plan to integrate dspy for a greater degree of controllability.
+we take the embedded text posts (using a local instance of nomic v-1.5) and run them against the embedded query after analyzing the user's intent, iteratively refining the query through prompting using chain of thought and in-context learning through optional clarifying questions presented to the user to be used as a ref for a generated sql lookup query. this is not the intended final method to refine queries, as string-based prompts are unreliable at generating the target sql query at times (will most likely move away from genned queries)
 
-right now, the project uses only lexical lookup, with semantic search still in progress. 
+right now, the project uses only lexical lookup, with semantic search still in progress. also i'm re-writing this shit in rust. cry about it. yall thought i forgot about this project? it haunts me before i go to bed every night. also, we're making this shit fully local. you're gonna run your own fucking model, host yuor own fucking database, and use your own compute. (you'll still have an option though)
 
 the challege for right now is identifying the relevant metadata: traditional markers like timestamps and other baseline post metadata aren't enough to grab meaningful results through common search strategies like bm25--i'm using a similiarity score that often yields low accuracy results for the metric i want to measure for, which is user subjective intent. 
 
 a post may have a very non-descript text that features the image as the main feature, and that in and of itself isn't straight-cut either... memespeak is hard to codify and often, it's in the collective knowledge of a certain ingroup (lol) that understands the signficance of the meme and what it's referring to. take this meme for example:
 
-![Meme](/Users/gene/briend/samplepic/IMG_6822.JPG)
+![Meme](/samplepic/IMG_6822.JPG)
 
 so if i were to run this with ocr, it'd recognize a
 -boy

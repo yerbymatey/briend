@@ -30,6 +30,7 @@ client2 = Groq(
     api_key=os.environ.get("GROQ_API_KEY"),
 )
 
+chosen_model = "local"
 
 # Function to generate embedding using local API
 def generate_embedding(text, prefix):
@@ -55,8 +56,9 @@ def generate_embedding(text, prefix):
 def parse_embedding(embedding_str):
     return [float(x) for x in embedding_str.strip('[]').split(',')]
 
-def analyze_query(query, model_choice):
-    if model_choice == "groq":
+def analyze_query(query):
+    global chosen_model
+    if chosen_model == "groq":
         completion = client2.chat.completions.create(
             model="llama3-70b-8192",
             messages=[
@@ -75,8 +77,9 @@ def analyze_query(query, model_choice):
     
     return completion.choices[0].message.content
 
-def clarification_questions(analysis, model_choice):
-    if model_choice == "groq":
+def clarification_questions(analysis):
+    global chosen_model
+    if chosen_model == "groq":
         completion = client2.chat.completions.create(
             model="llama3-70b-8192",
             messages=[
@@ -95,8 +98,9 @@ def clarification_questions(analysis, model_choice):
     
     return completion.choices[0].message.content.split('\n')
 
-def expand_query(original_query, clarifications, model_choice):
-    if model_choice == "groq":
+def expand_query(original_query, clarifications):
+    global chosen_model
+    if chosen_model == "groq":
         completion = client2.chat.completions.create(
             model="llama3-70b-8192",
             messages=[
@@ -115,23 +119,23 @@ def expand_query(original_query, clarifications, model_choice):
     
     return completion.choices[0].message.content
 
-def iterative_query_refinement(initial_query, model_choice):
-    analysis = analyze_query(initial_query, model_choice)
-    questions = clarification_questions(analysis, model_choice)
+def iterative_query_refinement(initial_query):
+    analysis = analyze_query(initial_query)
+    questions = clarification_questions(analysis)
     clarifications = []
     for question in questions:
         # Generate random responses for demonstration purposes
         user_response = f"Sample response to: {question}"
         clarifications.append(f"Q: {question}\nA: {user_response}")
     
-    expanded_query = expand_query(initial_query, clarifications, model_choice)
+    expanded_query = expand_query(initial_query, clarifications)
     return expanded_query
 
 def search_posts(query, top_k=5):
     conn = pg8000.connect(**db_params)
     try:
         # Expand the query
-        expanded_query = expand_query(query)
+        expanded_query = iterative_query_refinement(query)
         print(f"Expanded query: {expanded_query}")  # For debugging
 
         with conn.cursor() as cur:
@@ -145,28 +149,28 @@ def search_posts(query, top_k=5):
         if not results:
             return "No posts found."
 
-        post_urls, titles, embeddings = zip(*results)
-        
-        # Parse embeddings
-        parsed_embeddings = [parse_embedding(emb) for emb in embeddings]
+        posts = []
+        for result in results:
+            post_url, title, embedding_str = result
+            embedding = parse_embedding(embedding_str)
+            posts.append({"url": post_url, "title": title, "embedding": embedding})
         
         # Generate embedding for expanded query with 'search_query' prefix
         query_embedding = generate_embedding(expanded_query, "search_query")
         
-        similarities = cosine_similarity([query_embedding], parsed_embeddings)[0]
+        searcher = MultiStrategySearch(posts)
+        results = searcher.search(expanded_query, query_embedding)
         
-        top_indices = np.argsort(similarities)[-top_k:][::-1]
+        # Rerank the results
+        reranked_results = searcher.rerank(expanded_query, results, chosen_model)
         
-        output = f"Original query: {query}\nExpanded query: {expanded_query}\n\nResults:\n\n"
-        for i, idx in enumerate(top_indices, 1):
-            output += f"{i}. Post: {titles[idx]}\n"
-            output += f"   URL: {post_urls[idx]}\n"
-            output += f"   Similarity: {similarities[idx]:.4f}\n\n"
+        print(f"Reranked results: {reranked_results}")  # For debugging
         
-        return output
+        return reranked_results[:top_k]
 
     finally:
         conn.close()
+
 
 class MultiStrategySearch:
     def __init__(self, posts):
@@ -175,7 +179,7 @@ class MultiStrategySearch:
         self.setup_faiss()
     
     def setup_bm25(self):
-        tokenized_posts = [post['content'].split() for post in self.posts]
+        tokenized_posts = [post['title'].split() for post in self.posts]
         self.bm25 = BM25Okapi(tokenized_posts)
     
     def setup_faiss(self):
@@ -194,24 +198,65 @@ class MultiStrategySearch:
         return [self.posts[i] for i in I[0]]
     
     def rerank(self, query, candidates, reranker_model):
-        # Implement re-ranking logic using a lightweight model
-        pass
-    
+        completion = None
+        if reranker_model == "groq":
+            try:
+                completion = client2.chat.completions.create(
+                    model="llama3-70b-8192",
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant that reranks search results based on relevance to the given query."},
+                        {"role": "user", "content": f"Query: {query}\n\nCandidates:\n" + "\n".join([f"{i+1}. {candidate['title']}" for i, candidate in enumerate(candidates)])},
+                        {"role": "user", "content": "Please rerank the candidates based on their relevance to the query, with the most relevant result first. Provide the reranked list of titles only."}
+                    ],
+                    temperature=0.7,
+                )
+            except Exception as e:
+                print(f"Error while using Groq API: {str(e)}. Skipping reranking.")
+                return candidates
+        
+        if reranker_model == "local":
+            try:
+                completion = client.chat.completions.create(
+                    model="local-llama3-8b",
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant that reranks search results based on relevance to the given query."},
+                        {"role": "user", "content": f"Query: {query}\n\nCandidates:\n" + "\n".join([f"{i+1}. {candidate['title']}" for i, candidate in enumerate(candidates)])},
+                        {"role": "user", "content": "Please rerank the candidates based on their relevance to the query, with the most relevant result first. Provide the reranked list of titles only."}
+                    ],
+                    temperature=0.7,
+                )
+            except Exception as e:
+                print(f"Error while using local model: {str(e)}. Skipping reranking.")
+                return candidates
+        
+        if completion is not None:
+            reranked_titles = completion.choices[0].message.content.split("\n")
+            reranked_results = []
+            for title in reranked_titles:
+                matching_post = next((post for post in candidates if post['title'] == title), None)
+                if matching_post is not None:
+                    reranked_results.append(matching_post)
+            return reranked_results
+        else:
+            return candidates
+        
     def search(self, query, query_embedding):
         bm25_results = self.bm25_search(query)
         faiss_results = self.faiss_search(query_embedding)
         
-        # Combine and deduplicate results
-        combined_results = list(set(bm25_results + faiss_results))
+        # Combine and deduplicate results based on the 'url' field
+        combined_results = []
+        seen_urls = set()
+        for result in bm25_results + faiss_results:
+            if result['url'] not in seen_urls:
+                combined_results.append(result)
+                seen_urls.add(result['url'])
         
         # Re-rank the combined results
-        reranked_results = self.rerank(query, combined_results, reranker_model)
+        reranked_results = self.rerank(query, combined_results, chosen_model)
         
         return reranked_results[:5]  # Return top 5 results
-
-# Usage
-searcher = MultiStrategySearch(posts)
-results = searcher.search("AI ethics", query_embedding)
+    
 # Function to insert or update posts in the database
 def upsert_post(title, url, content):
     conn = pg8000.connect(**db_params)
@@ -234,10 +279,11 @@ def upsert_post(title, url, content):
     finally:
         conn.close()
 
-# Gradio interface for search
 def gradio_search(query):
+    global chosen_model
     print(f"Received query: {query}")
-    result = search_posts(query)
+    refined_query = iterative_query_refinement(query)
+    result = search_posts(refined_query, chosen_model)  # Pass chosen_model here
     print(f"Search completed. Result length: {len(result)}")
     return result
 
@@ -250,17 +296,25 @@ with gr.Blocks() as iface:
     gr.Markdown("# search and manage ur posts w/ briend :) ")
     
     with gr.Tab("Search Posts"):
-        model_choice = gr.Dropdown(["groq", "local"], label="Model Choice")
+        model_choice = gr.Dropdown(["groq", "local"], label="Model Choice", value="local")
         search_input = gr.Textbox(lines=2, placeholder="What do you want to find?")
         search_output = gr.Textbox(label="Results:")
         search_button = gr.Button("Search")
     
-    def gradio_search(query, model_choice):
+    def set_model_choice(model):
+        global chosen_model
+        chosen_model = model
+    
+    model_choice.change(set_model_choice, inputs=model_choice, outputs=None)
+    
+    def gradio_search(query):
+        global chosen_model
         print(f"Received query: {query}")
-        refined_query = iterative_query_refinement(query, model_choice)
-        result = search_posts(refined_query)
-        print(f"Search completed. Result length: {len(result)}")
-        return result
+        refined_query = iterative_query_refinement(query)
+        results = search_posts(refined_query)
+        print(f"Search completed. Results: {results}")  # For debugging
+        formatted_results = "\n".join([f"Title: {result['title']}\nURL: {result['url']}\n" for result in results])
+        return formatted_results
     
     with gr.Tab("add/update post"):
         title_input = gr.Textbox(label="Post Title")
@@ -269,8 +323,7 @@ with gr.Blocks() as iface:
         upsert_output = gr.Textbox(label="Result")
         upsert_button = gr.Button("Add/Update Post")
     
-    search_button.click(gradio_search, inputs=[search_input, model_choice], outputs=search_output)
-
+    search_button.click(gradio_search, inputs=search_input, outputs=search_output)
     upsert_button.click(gradio_upsert, inputs=[title_input, url_input, content_input], outputs=upsert_output)
 
 if __name__ == "__main__":

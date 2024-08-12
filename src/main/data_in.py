@@ -1,12 +1,13 @@
 import pg8000
 import json
+import os
 
 def connect_to_db():
     return pg8000.connect(
-        host="ep-delicate-bread-a4qtryy4.us-east-1.aws.neon.tech",
-        database="briend",
-        user="briend",
-        password="FZpuSdwe8L5P",
+        host=os.getenv("PGHOST"),
+        database=os.getenv("PGDATABASE"),
+        user=os.getenv("PGUSER"),
+        password=os.getenv("PGPASSWORD"),
         ssl_context=True
     )
 
@@ -64,7 +65,7 @@ def process_twitter_data(file_path):
         if conn:
             conn.close()
 
-FILE_PATH = "/Users/gene/briend/data/outputs/cleaned/tweet_bm_cleaned.json"
+FILE_PATH = "outputs/cleaned/tweet_bm_cleaned.json"
 
 if __name__ == "__main__":
     process_twitter_data(FILE_PATH)
