@@ -3,6 +3,7 @@ a tool to help you keep your bookmarks in one place, analyze their content, and 
 
 this tool uses semantic search on text from social media platforms (twitter for now, image recognition and classification coming soon down the line).
 
+note: this isn't being currently maintained but i'd like to return to this in the future... somebody pls hold me to this
 ## how it works
 
 posts from x were scraped (through totally cool and non api usage terms violating ways, but message me if you want to know) then were extracted for the text content only, embedded, then stored in a db using postgres. 
